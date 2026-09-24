@@ -22,14 +22,40 @@
     <meta charset="utf-8">
     <title>Countdown Timer | UwU Apps</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A simple countdown app; view live countdown at a glance!">
+    <meta name="description" content="Count down to any date, or for any length of time. Give it a title and a background, then leave it running, even offline.">
+    <link rel="canonical" href="https://countdown.uwuapps.org/">
 
     <meta property="og:type" content="website">
     <meta property="og:title" content="Countdown Timer | UwU Apps" />
     <meta property="og:site_name" content="UwU Apps" />
-    <meta property="og:description" content="A simple countdown app; view live countdown at a glance!" />
+    <meta property="og:description" content="Count down to any date, or for any length of time. Give it a title and a background, then leave it running, even offline." />
+    <meta property="og:url" content="https://countdown.uwuapps.org/" />
 
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jua">
+    <script>
+        (function () {
+            var k = "countdown";
+            var m = localStorage.getItem(k + ".mode") || "light";
+
+            // Time based mode. Resolved here rather than in theme.js because
+            // theme.js runs after first paint, and an evening reader would
+            // otherwise watch a white page turn dark. Keep the two hours in step
+            // with LIGHT_FROM_HOUR and LIGHT_UNTIL_HOUR in theme.js.
+            document.documentElement.setAttribute("data-mode-preference", m);
+            if (m === "time") {
+                var h = new Date().getHours();
+                m = h >= 9 && h < 18 ? "light" : "dark";
+            }
+
+            var c = localStorage.getItem(k + ".colorTheme") || "classic";
+            document.documentElement.setAttribute("data-mode", m);
+            document.documentElement.setAttribute("data-color-theme", c);
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- crossorigin so the service worker gets a readable response it can cache for offline use -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" crossorigin="anonymous">
     <link rel="stylesheet" href="/style.css">
     <meta name="theme-color" content="#ccffcc" />
 
@@ -38,24 +64,179 @@
     <link rel="icon" href="/favicon.ico">
     <link rel="shortcut icon" href="/favicon.ico">
     <meta name="twitter:card" content="summary">
-    <meta name="twitter:image:src" content="/XCT-main.png">
-    <meta property="og:image" content="/XCT-main.png" />
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <script defer="" src="https://use.fontawesome.com/releases/v6.5.2/js/all.js"></script>
+    <meta name="twitter:image:src" content="https://countdown.uwuapps.org/XCT-main.png">
+    <meta property="og:image" content="https://countdown.uwuapps.org/XCT-main.png" />
 </head>
 
 <body>
-    Countdown Timer
+    <div class="bg-layer hidden" id="bgLayer" aria-hidden="true">
+        <img id="bgImg" alt="" />
+    </div>
+    <canvas id="confettiCanvas" aria-hidden="true"></canvas>
 
-    <script src="/script.js"></script>
+    <main class="app">
+        <header class="topbar">
+            <h1 class="app-name"><span data-icon="clock"></span>Countdown Timer</h1>
+            <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
+                <span data-icon="sun"></span>
+            </button>
+        </header>
 
-    <script>
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('/sw.js');
-        }
-    </script>
-    
+        <section class="glass title-card">
+            <input id="titleInput" type="text" value="Countdown to Something Awesome" maxlength="80"
+                aria-label="Countdown title" />
+        </section>
+
+        <section class="glass clock" role="timer" aria-label="Time remaining">
+            <div class="unit" data-unit="d">
+                <span class="value" id="d">00</span>
+                <span class="label">Days</span>
+            </div>
+            <div class="unit" data-unit="h">
+                <span class="value" id="h">00</span>
+                <span class="label">Hours</span>
+            </div>
+            <div class="unit" data-unit="m">
+                <span class="value" id="m">00</span>
+                <span class="label">Minutes</span>
+            </div>
+            <div class="unit" data-unit="s">
+                <span class="value" id="s">00</span>
+                <span class="label">Seconds</span>
+            </div>
+        </section>
+
+        <p class="status" id="status" role="status"></p>
+
+        <div class="actions">
+            <button class="btn btn-primary" id="startBtn" type="button">
+                <span data-icon="play"></span><span class="btn-label">Start</span>
+            </button>
+            <button class="btn" id="pauseBtn" type="button" disabled>
+                <span data-icon="pause"></span><span class="btn-label">Pause</span>
+            </button>
+            <button class="btn" id="resetBtn" type="button">
+                <span data-icon="reset"></span><span class="btn-label">Reset</span>
+            </button>
+        </div>
+
+        <section class="glass settings">
+            <button class="settings-toggle" id="settingsToggle" type="button" aria-expanded="true"
+                aria-controls="settingsPanel">
+                <span data-icon="sliders"></span>
+                <span class="settings-title">Customise</span>
+                <span class="chevron" data-icon="chevron"></span>
+            </button>
+
+            <div class="settings-panel" id="settingsPanel">
+                <div class="settings-clip">
+                    <div class="settings-body">
+                        <p class="section-label">Timing</p>
+                        <div class="fields">
+                            <div class="field wide">
+                                <span class="field-label" id="countModeLabel">Count down</span>
+                                <div class="segmented" id="countMode" role="group" aria-labelledby="countModeLabel">
+                                    <button class="seg-btn active" type="button" data-count-mode="date"
+                                        aria-pressed="true">To a date</button>
+                                    <button class="seg-btn" type="button" data-count-mode="duration"
+                                        aria-pressed="false">For a duration</button>
+                                </div>
+                            </div>
+                            <div class="field" data-for-mode="date">
+                                <label for="target">Target date and time</label>
+                                <input class="input" id="target" type="datetime-local" />
+                                <p class="hint">Uses your device's time zone.</p>
+                            </div>
+                            <div class="field hidden" data-for-mode="duration">
+                                <label for="durationMin">Duration in minutes</label>
+                                <input class="input" id="durationMin" type="number" min="1" step="1"
+                                    inputmode="numeric" placeholder="e.g. 90" />
+                            </div>
+                            <div class="field">
+                                <label for="startDelay">Start after (seconds)</label>
+                                <input class="input" id="startDelay" type="number" min="0" step="1"
+                                    inputmode="numeric" value="0" />
+                            </div>
+                        </div>
+
+                        <p class="section-label">Background</p>
+                        <div class="fields">
+                            <div class="field wide">
+                                <label for="bgUrl">Image URL</label>
+                                <input class="input" id="bgUrl" type="url" placeholder="https://..." />
+                            </div>
+                            <div class="field">
+                                <label for="bgFile">Or upload an image</label>
+                                <input class="input file" id="bgFile" type="file" accept="image/*" />
+                            </div>
+                            <div class="field field-end">
+                                <button class="btn" id="clearBgBtn" type="button">
+                                    <span data-icon="close"></span>Remove background
+                                </button>
+                            </div>
+                            <div class="field">
+                                <label for="dim">Dim <output id="dimOut" for="dim">35%</output></label>
+                                <input id="dim" type="range" min="0" max="90" value="35" />
+                            </div>
+                            <div class="field">
+                                <label for="blur">Blur <output id="blurOut" for="blur">2 px</output></label>
+                                <input id="blur" type="range" min="0" max="18" value="2" />
+                            </div>
+                            <p class="hint wide">Dim and blur apply when a background image is set.</p>
+                        </div>
+
+                        <p class="section-label">Show</p>
+                        <div class="checks" role="group" aria-label="Units to show">
+                            <label class="check"><input id="showDays" type="checkbox" checked /> Days</label>
+                            <label class="check"><input id="showHours" type="checkbox" checked /> Hours</label>
+                            <label class="check"><input id="showMinutes" type="checkbox" checked /> Minutes</label>
+                            <label class="check"><input id="showSeconds" type="checkbox" checked /> Seconds</label>
+                        </div>
+
+                        <div class="settings-actions">
+                            <button class="btn" id="saveBtn" type="button">
+                                <span data-icon="save"></span>Save settings
+                            </button>
+                            <button class="btn btn-quiet" id="clearBtn" type="button">
+                                <span data-icon="trash"></span>Clear saved
+                            </button>
+                        </div>
+                        <p class="hint">Settings save automatically when you press Start and stay in this browser.
+                            Shortcuts: Space starts or pauses, R resets.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <p>Made with <span class="heart" data-icon="heart" role="img" aria-label="love"></span> by Augy</p>
+            <p>Drag and drop an image anywhere to set it as the background.</p>
+        </footer>
+    </main>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="modal-backdrop hidden" id="themeModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="themeModalTitle">
+            <div class="modal-head">
+                <h2 id="themeModalTitle">Theme</h2>
+                <button class="icon-btn small" type="button" data-close-modal="themeModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+            <p class="modal-section-label">Mode</p>
+            <div class="mode-toggle" id="modeToggle">
+                <button class="mode-btn" type="button" data-mode="light" aria-pressed="false"><span data-icon="sun"></span>Light</button>
+                <button class="mode-btn" type="button" data-mode="dark" aria-pressed="false"><span data-icon="moon"></span>Dark</button>
+                <button class="mode-btn mode-btn-wide" type="button" data-mode="time" aria-pressed="false"><span data-icon="clock"></span>Time-based</button>
+            </div>
+            <p class="mode-note" id="modeNote" hidden></p>
+            <p class="modal-section-label">Brand colour</p>
+            <div class="swatch-grid" id="swatchGrid"></div>
+        </div>
+    </div>
+
+    <script type="module" src="/script.js"></script>
 </body>
 
 </html>

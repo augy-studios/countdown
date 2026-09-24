@@ -1,7 +1,7 @@
 {
     "name": "Countdown Timer by UwU Apps",
     "short_name": "Countdown Timer",
-    "description": "A simple countdown app; view live countdown at a glance!",
+    "description": "Count down to any date, or for any length of time. Give it a title and a background, then leave it running, even offline.",
     "icons": [{
             "src": "XCT-192.png",
             "type": "image/png",
