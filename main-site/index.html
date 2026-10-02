@@ -77,6 +77,12 @@
     <main class="app">
         <header class="topbar">
             <h1 class="app-name"><span data-icon="clock"></span>Countdown Timer</h1>
+            <button class="icon-btn" id="shareBtn" type="button" aria-label="Share screen">
+                <span data-icon="cast"></span>
+            </button>
+            <button class="icon-btn" id="presentBtn" type="button" aria-label="Present fullscreen">
+                <span data-icon="play"></span>
+            </button>
             <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
                 <span data-icon="sun"></span>
             </button>
@@ -215,6 +221,113 @@
     </main>
 
     <div class="toast hidden" id="toast" role="status"></div>
+
+    <!-- Fullscreen countdown, over the page's own background. While sharing
+         in extend mode it becomes a remote: the countdown smaller, with the
+         controls beneath it. -->
+    <div class="present hidden" id="present" role="dialog" aria-modal="true" aria-label="Presenting" tabindex="-1">
+        <p class="present-remote-status" id="remoteStatus"></p>
+        <div class="present-stage">
+            <div id="presentDisplay"></div>
+        </div>
+        <div class="present-controls">
+            <button class="btn btn-primary" id="presentStart" type="button">
+                <span data-icon="play"></span><span class="btn-label">Start</span>
+            </button>
+            <button class="btn" id="presentPause" type="button">
+                <span data-icon="pause"></span><span class="btn-label">Pause</span>
+            </button>
+            <button class="btn" id="presentReset" type="button">
+                <span data-icon="reset"></span><span class="btn-label">Reset</span>
+            </button>
+        </div>
+        <button class="present-exit" id="presentExit" type="button" aria-label="Stop presenting">
+            <span data-icon="exit"></span>
+        </button>
+    </div>
+
+    <!-- The other screen. Covers the app while this device is showing
+         somebody else's countdown; see js/viewer.js. -->
+    <div class="viewer hidden" id="viewer" role="dialog" aria-modal="true" aria-label="Shared screen">
+        <div class="viewer-bg hidden" id="viewerBg" aria-hidden="true">
+            <img id="viewerBgImg" alt="" />
+        </div>
+        <div class="viewer-stage">
+            <div id="viewerDisplay"></div>
+        </div>
+        <div class="viewer-panel">
+            <h2 id="viewerTitle"></h2>
+            <p id="viewerMessage" role="status"></p>
+            <div class="button-row">
+                <button class="btn" id="viewerFullscreen" type="button" hidden>
+                    <span data-icon="fullscreen"></span>Full screen
+                </button>
+                <button class="btn" id="viewerRetry" type="button" hidden>
+                    <span data-icon="refresh"></span>Try again
+                </button>
+                <button class="btn btn-quiet" id="viewerLeave" type="button">Leave</button>
+            </div>
+        </div>
+        <p class="viewer-badge" id="viewerBadge" role="status" hidden></p>
+        <div class="viewer-controls">
+            <button class="viewer-btn" id="viewerFullscreenCorner" type="button" aria-label="Toggle full screen">
+                <span data-icon="fullscreen"></span>
+            </button>
+            <button class="viewer-btn" id="viewerExit" type="button" aria-label="Stop showing the shared countdown">
+                <span data-icon="exit"></span>
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="shareModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+            <div class="modal-head">
+                <h2 id="shareModalTitle">Share screen</h2>
+                <button class="icon-btn small" type="button" data-close-modal="shareModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+            <p class="modal-note">Show the countdown on another screen on the same wifi. It waits until you press play, then shows the countdown full screen.</p>
+
+            <p class="modal-section-label">How the other screen is used</p>
+            <div class="segmented" id="shareMode" role="group" aria-label="How the other screen is used">
+                <button class="seg-btn" type="button" data-share-mode="mirror" aria-pressed="false">Mirror</button>
+                <button class="seg-btn" type="button" data-share-mode="extend" aria-pressed="false">Extend</button>
+            </div>
+            <p class="mode-note" id="shareModeNote"></p>
+
+            <div class="share-idle" id="shareIdle">
+                <button class="btn btn-primary" id="shareStart" type="button">
+                    <span data-icon="cast"></span>Start sharing
+                </button>
+                <p class="mode-note" id="shareStartNote" role="status" hidden></p>
+            </div>
+
+            <div class="share-live" id="shareLive" hidden>
+                <div class="share-qr" id="shareQr"></div>
+                <p class="share-code" id="shareCode"></p>
+                <p class="share-help">Scan the code with the other device, or open <span id="shareHost"></span> on it, tap Share screen and type the code.</p>
+                <p class="share-link" id="shareLink"></p>
+                <p class="share-status" id="shareStatus" role="status"></p>
+                <div class="button-row">
+                    <button class="btn" id="shareNewCode" type="button">
+                        <span data-icon="refresh"></span>New code
+                    </button>
+                    <button class="btn btn-quiet" id="shareStop" type="button">
+                        <span data-icon="close"></span>Stop sharing
+                    </button>
+                </div>
+            </div>
+
+            <p class="modal-section-label">Be the other screen</p>
+            <form class="join-row" id="joinForm">
+                <input class="input" id="joinCode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters"
+                    spellcheck="false" maxlength="12" placeholder="Code" aria-label="Code from the sharing device">
+                <button class="btn" type="submit">Join</button>
+            </form>
+            <p class="mode-note" id="joinNote" role="status" hidden></p>
+        </div>
+    </div>
 
     <div class="modal-backdrop hidden" id="themeModal">
         <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="themeModalTitle">

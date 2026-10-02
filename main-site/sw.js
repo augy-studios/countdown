@@ -1,7 +1,7 @@
 // Bump on every deploy that changes anything this worker serves. The browser
 // only sees an update when this file changes byte for byte, so a version left
 // alone is an update bar nobody ever sees.
-const VERSION = "2026-09-24.1";
+const VERSION = "2026-10-02.1";
 
 // One cache per version. The new worker precaches into its own cache while
 // the old one keeps serving the page on screen from the old cache.
@@ -17,6 +17,16 @@ const ASSETS = [
   "/js/icons.js",
   "/js/ui.js",
   "/js/update.js",
+  "/js/display.js",
+  "/js/store.js",
+  // Sharing. These modules are precached so the app and its share sheet
+  // open offline; PeerJS and the QR encoder they load are deliberately not,
+  // since sharing needs the network anyway and a stale signalling client
+  // against a live broker is worse than a clear "could not load".
+  "/js/share.js",
+  "/js/viewer.js",
+  "/js/p2p.js",
+  "/js/qr.js",
   "/XCT-192.png",
   "/XCT-512.png",
   "/favicon.ico",

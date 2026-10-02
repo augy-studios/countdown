@@ -10,10 +10,16 @@ ES modules: no build step and no dependencies. This folder is deployed as-is.
 |---|---|
 | `index.html` | The only page. Its `<head>` includes the pre-paint theme script. |
 | `style.css` | Theme tokens and primitives from `uwuapps-theme.md` at the top, app styles below. |
-| `script.js` | Entry module: theme modal wiring, the countdown, background image, settings, confetti, shortcuts. |
+| `script.js` | Entry module: theme modal wiring, the countdown, background image, settings, presenting, confetti, shortcuts. |
 | `js/theme.js` | Brand colours and light, dark or time-based mode. |
 | `js/icons.js` | Inline SVG icons, used as `data-icon="name"`. |
 | `js/ui.js` | `hydrateIcons`, `openModal`, `closeModal`. |
+| `js/display.js` | The big title, clock and status, drawn by the presenter and by a shared screen. |
+| `js/share.js` | Sharing, the host's side: the share sheet, the code and QR, snapshots and the background transfer. |
+| `js/viewer.js` | Sharing, the other screen's side: joins by code or `?join=` link and shows the host's countdown. |
+| `js/p2p.js` | PeerJS pairing over STUN only, per [`STUN-p2p-spec.md`](../STUN-p2p-spec.md). Loads PeerJS on demand. |
+| `js/qr.js` | Draws the join link's QR code. Loads the encoder on demand. |
+| `js/store.js` | `readSetting` and `writeSetting` for the sharing keys. |
 | `js/update.js` | Registers the service worker and draws the update bar. |
 | `sw.js` | Service worker: offline cache and update handling. |
 | `manifest.json` | PWA manifest. |
@@ -63,14 +69,41 @@ See [`update-bar-spec.md`](../update-bar-spec.md) for the reasoning.
 - Analytics, ads and background image URLs go to the network and are never
   cached. An uploaded background image is stored in IndexedDB, so it does
   work offline.
+- Sharing needs the network. Its modules are precached so the share sheet
+  opens offline and says it cannot connect, but PeerJS and the QR encoder are
+  loaded from cdnjs when sharing starts and are deliberately never cached.
+
+## Presenting and sharing
+
+The play button in the top bar presents: the title, clock and status, full
+screen, over the page's background, with a screen wake lock. Escape, the exit
+button, or leaving fullscreen stops it.
+
+The screen button beside it shares to another device over WebRTC, following
+[`STUN-p2p-spec.md`](../STUN-p2p-spec.md): STUN only, PeerJS's public broker,
+ids prefixed `countdown-`. The other screen waits until the host presents, so
+nothing about the countdown leaves the host before then. While presenting,
+the host sends a snapshot twenty times a second with the time left rather
+than the target, and the other screen counts down from when each one
+arrived, so the two devices' clocks never have to agree. An uploaded
+background goes once, scaled to 1920px, in chunks; a URL background goes as
+the URL.
+
+In **Extend** mode the host's presenter becomes a remote: the countdown in a
+smaller frame, with Start, Pause and Reset beneath it.
+
+`PROTOCOL_VERSION` in `js/p2p.js` goes up whenever a message changes shape,
+so a host and a screen on different builds say so instead of misreading each
+other.
 
 ## Theme
 
 Follows [`uwuapps-theme.md`](../uwuapps-theme.md) exactly, with the
 time-based mode option. In short:
 
-- Colours come from CSS variables only. No hardcoded hex values in component
-  CSS; the footer heart is the one allowed exception.
+- Colours come from CSS variables only. No hardcoded colours in component
+  CSS; the footer heart and the share QR code's black on white, which a
+  scanner needs in every theme, are the allowed exceptions.
 - Jua everywhere, inline SVG icons, no emoji, no em dashes, no gradients.
 - Light mode is the default. The OS dark preference is ignored until the
   person picks a mode.
@@ -79,26 +112,34 @@ time-based mode option. In short:
 
 ## Stored data
 
-Everything stays in the visitor's browser. Nothing is sent anywhere.
+Everything stays in the visitor's browser. Nothing is sent anywhere, except
+to the other screen while sharing and presenting.
 
 | Where | Key | Holds |
 |---|---|---|
 | localStorage | `countdown.colorTheme` | Brand colour id |
 | localStorage | `countdown.mode` | Mode preference: `light`, `dark` or `time` |
 | localStorage | `countdown.settings` | Title, timing, background URL, dim, blur, visible units |
+| localStorage | `countdown.shareMode` | `mirror` or `extend` |
+| localStorage | `countdown.shareRole` | `host` or `guest` while sharing, so a reload rejoins |
+| localStorage | `countdown.hostCode` | The code this device shares under |
+| localStorage | `countdown.lastCode` | The code this device last joined |
 | IndexedDB `countdown` | `files` / `background` | Uploaded background image |
+
+A shared screen holds the host's background in memory only, and wears the
+host's colours without saving them.
 
 Settings save when the person presses Start or Save settings. Clear saved
 removes the settings and the stored image. It does not change the theme.
 
 ## Keyboard shortcuts
 
-Shortcuts are ignored while a field or button has focus, or while the theme
-modal is open.
+Shortcuts are ignored while a field or button has focus, while a modal is
+open, or while showing a shared countdown. They work while presenting.
 
 | Key | Action |
 |---|---|
 | Space | Start, or pause and resume a duration |
 | S | Start |
 | R | Reset |
-| Esc | Close the theme modal |
+| Esc | Close a modal, or stop presenting |

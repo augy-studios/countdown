@@ -10,6 +10,9 @@ import {
   initTheme,
 } from "./js/theme.js";
 import { hydrateIcons, openModal, closeModal } from "./js/ui.js";
+import { UNITS as UNIT_SIZES, pad, splitRemaining as splitInto, createDisplay, paintDisplay } from "./js/display.js";
+import { initShare, isHosting, hostStatus, shareMode, shareNow } from "./js/share.js";
+import { initViewer, isViewing } from "./js/viewer.js";
 import "./js/update.js";
 
 const $ = (s) => document.querySelector(s);
@@ -151,7 +154,17 @@ const els = {
 
   toast: $("#toast"),
   canvas: $("#confettiCanvas"),
+
+  presentBtn: $("#presentBtn"),
+  present: $("#present"),
+  remoteStatus: $("#remoteStatus"),
+  presentStart: $("#presentStart"),
+  presentPause: $("#presentPause"),
+  presentReset: $("#presentReset"),
+  presentExit: $("#presentExit"),
 };
+
+const presentView = createDisplay($("#presentDisplay"));
 
 const PAGE_TITLE = document.title;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -170,6 +183,7 @@ function showToast(message, kind = "") {
 function setStatus(text, kind = "") {
   els.status.textContent = text;
   els.status.classList.toggle("done", kind === "done");
+  paintPresent();
 }
 
 function setButton(btn, iconName, label) {
@@ -190,6 +204,9 @@ els.settingsToggle.addEventListener("click", () => {
 // stored in IndexedDB so it survives a reload and works offline.
 let bgBlob = null;
 let bgObjectUrl = null;
+// Names the uploaded image to a shared screen, which says by id which
+// pictures it already holds. New with every image, so a swap is noticed.
+let bgId = null;
 
 function applyOverlay() {
   document.documentElement.style.setProperty("--bg-dim", `${els.dim.value}%`);
@@ -221,6 +238,7 @@ function setBackgroundUrl(url) {
 
 function setBackgroundBlob(blob) {
   bgBlob = blob;
+  bgId = `bg-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   releaseObjectUrl();
   bgObjectUrl = URL.createObjectURL(blob);
   els.bgUrl.value = "";
@@ -325,15 +343,15 @@ els.countMode.addEventListener("click", (e) => {
 });
 
 // ===== Visibility toggles =====
-const UNITS = [
-  { key: "d", ms: 86400000, toggle: "showDays" },
-  { key: "h", ms: 3600000, toggle: "showHours" },
-  { key: "m", ms: 60000, toggle: "showMinutes" },
-  { key: "s", ms: 1000, toggle: "showSeconds" },
-];
+const TOGGLES = { d: "showDays", h: "showHours", m: "showMinutes", s: "showSeconds" };
+const UNITS = UNIT_SIZES.map((u) => ({ ...u, toggle: TOGGLES[u.key] }));
 
 function visibleUnits() {
   return UNITS.filter((u) => els[u.toggle].checked);
+}
+
+function visibleKeys() {
+  return visibleUnits().map((u) => u.key);
 }
 
 function applyVisibility() {
@@ -352,31 +370,31 @@ let pausedRemaining = null; // ms left while paused, duration mode only
 let tickTimer = null;
 let delayTimer = null;
 let endReached = false;
-
-function pad(n) {
-  return String(Math.max(0, n)).padStart(2, "0");
-}
+// What the clock shows, for the presenter and a shared screen.
+let shownMs = 0;
 
 // Split into the visible units. A hidden unit's share rolls into the next
-// visible one down, so hiding Days shows 49 hours rather than 1. Rounded up
-// to the second, so the display reaches 00 exactly when time is up.
+// visible one down, so hiding Days shows 49 hours rather than 1.
 function splitRemaining(ms) {
-  let rest = Math.ceil(ms / 1000) * 1000;
-  const parts = {};
-  for (const u of visibleUnits()) {
-    parts[u.key] = Math.floor(rest / u.ms);
-    rest -= parts[u.key] * u.ms;
-  }
-  return parts;
+  return splitInto(ms, visibleKeys());
 }
 
 function render(ms) {
+  shownMs = ms;
   const parts = splitRemaining(ms);
   for (const u of UNITS) {
     const text = pad(parts[u.key] ?? 0);
     if (els[u.key].textContent !== text) els[u.key].textContent = text;
   }
+  paintPresent();
   return parts;
+}
+
+// Counting down live, as opposed to idle, waiting out the start delay,
+// paused or finished. Only then does a shared screen count on its own
+// between snapshots.
+function isCounting() {
+  return targetTS !== null && delayTimer === null && pausedRemaining === null && !endReached;
 }
 
 function remaining() {
@@ -405,7 +423,9 @@ function finish() {
   endReached = true;
   document.title = "Time's up! | Countdown Timer";
   setStatus("Time's up!", "done");
-  startConfetti();
+  // Not while this device is showing somebody else's countdown, which
+  // brings its own confetti.
+  if (!isViewing()) startConfetti();
   updateControls();
 }
 
@@ -503,15 +523,25 @@ function updateControls() {
   const running = runMode !== null && !endReached;
   const paused = pausedRemaining !== null;
 
-  els.startBtn.disabled = running;
-  els.pauseBtn.classList.toggle("hidden", mode !== "duration");
-  els.pauseBtn.disabled = !running || delayTimer !== null;
-  setButton(els.pauseBtn, paused ? "play" : "pause", paused ? "Resume" : "Pause");
+  // The presenter's remote buttons follow the page's own.
+  for (const [start, pause] of [[els.startBtn, els.pauseBtn], [els.presentStart, els.presentPause]]) {
+    start.disabled = running;
+    pause.classList.toggle("hidden", mode !== "duration");
+    pause.disabled = !running || delayTimer !== null;
+    setButton(pause, paused ? "play" : "pause", paused ? "Resume" : "Pause");
+  }
+
+  // Start, pause, reset and time running out reach a shared screen now,
+  // not on its next beat.
+  shareNow();
 }
 
 els.startBtn.addEventListener("click", startCountdown);
 els.pauseBtn.addEventListener("click", togglePause);
 els.resetBtn.addEventListener("click", resetCountdown);
+els.presentStart.addEventListener("click", startCountdown);
+els.presentPause.addEventListener("click", togglePause);
+els.presentReset.addEventListener("click", resetCountdown);
 
 // ===== Persistence =====
 const SETTINGS_KEY = "countdown.settings";
@@ -687,12 +717,159 @@ function stopConfetti() {
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 }
 
+// ===== Presenting =====
+// The play button in the top bar: the title and the clock, full screen, over
+// the page's own background. Escape, the exit button, or leaving fullscreen
+// stops it.
+let presenting = false;
+let wakeLock = null;
+
+function paintPresent() {
+  if (!presenting) return;
+  paintDisplay(presentView, {
+    title: els.titleInput.value.trim(),
+    units: visibleKeys(),
+    ms: shownMs,
+    status: els.status.textContent,
+    done: endReached,
+  });
+}
+
+/* Sharing in extend mode turns the presenter into a remote: the other
+   screen has the countdown, so this one shows it smaller with the controls
+   beneath it. Mirror, or not sharing at all, is the plain full screen
+   countdown. */
+function showPresent() {
+  const remote = isHosting() && shareMode() === "extend";
+  els.present.classList.toggle("remote", remote);
+  if (remote) {
+    els.remoteStatus.textContent =
+      hostStatus() === "connected" ? "On the other screen" : "Waiting for the other screen to join";
+  }
+  paintPresent();
+}
+
+async function requestWakeLock() {
+  if (!presenting || wakeLock) return;
+  try {
+    // A countdown on a wall is one nobody touches for a while.
+    wakeLock = (await navigator.wakeLock?.request("screen")) ?? null;
+    wakeLock?.addEventListener("release", () => {
+      wakeLock = null;
+    });
+  } catch {
+    /* wake lock unsupported or refused; the screen may dim */
+  }
+}
+
+async function enterPresent() {
+  if (presenting) return;
+  presenting = true;
+  els.present.classList.remove("hidden");
+  document.body.classList.add("presenting");
+  showPresent();
+  // Sent before the fullscreen request, so the other screen is not kept
+  // waiting on this one's animation.
+  shareNow();
+  // Focus on the overlay itself rather than a button, so Space and R work
+  // as shortcuts here instead of pressing whatever was focused.
+  els.present.focus();
+
+  // Fullscreen is a request, not a guarantee: iOS Safari refuses it outside
+  // an installed PWA. The presenter is styled to fill the viewport on its
+  // own, so a refusal costs the status bar and nothing else.
+  try {
+    await document.documentElement.requestFullscreen?.();
+  } catch {
+    /* fullscreen refused, the fixed overlay still covers the page */
+  }
+
+  requestWakeLock();
+}
+
+async function exitPresent() {
+  if (!presenting) return;
+  presenting = false;
+  els.present.classList.add("hidden");
+  document.body.classList.remove("presenting");
+  // The other screen goes back to waiting at once, not on the next beat.
+  shareNow();
+  els.presentBtn.focus();
+
+  const lock = wakeLock;
+  wakeLock = null;
+  lock?.release().catch(() => {});
+
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      /* already out */
+    }
+  }
+}
+
+function wirePresenter() {
+  els.presentBtn.addEventListener("click", enterPresent);
+  els.presentExit.addEventListener("click", exitPresent);
+
+  document.addEventListener("keydown", (e) => {
+    if (presenting && e.key === "Escape") exitPresent();
+  });
+
+  // Leaving fullscreen by the browser's own gesture, rather than the exit
+  // button, has to close the presenter too or the page is left overlaid.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && presenting) exitPresent();
+  });
+
+  // A screen lock is dropped when the tab is hidden and is not restored on
+  // its own, so a presenter who takes a call comes back to a screen that
+  // dims.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") requestWakeLock();
+  });
+
+  // A guest joining or leaving, or the mode changing, redraws the presenter
+  // between its full screen countdown and the remote.
+  document.addEventListener("uwu:sharechange", () => {
+    if (presenting) showPresent();
+  });
+}
+
+/* What a shared screen is told about. Nothing about the countdown leaves
+   this device until play is pressed. */
+function shareFrame() {
+  return {
+    presenting,
+    title: els.titleInput.value.trim(),
+    units: visibleKeys(),
+    ms: isCounting() ? remaining() : shownMs,
+    running: isCounting(),
+    status: els.status.textContent,
+    done: endReached,
+    dim: Number(els.dim.value),
+    blur: Number(els.blur.value),
+    background: sharedBackground(),
+  };
+}
+
+// Only a background that is actually on screen here.
+function sharedBackground() {
+  if (els.bgLayer.classList.contains("hidden")) return null;
+  if (bgBlob) return { id: bgId, blob: bgBlob };
+  const url = els.bgUrl.value.trim();
+  return url ? { url } : null;
+}
+
 // ===== Keyboard shortcuts =====
 // Only when nothing that takes typing or its own keys has focus, so R and S
-// can be typed into any field and Space still presses a focused button.
+// can be typed into any field and Space still presses a focused button. Not
+// while showing a shared countdown either, which would start or reset this
+// device's own one out of sight.
 window.addEventListener("keydown", (e) => {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (document.body.classList.contains("modal-open")) return;
+  if (document.body.classList.contains("modal-open") || isViewing()) return;
   if (document.activeElement?.closest("input, textarea, select, button, [contenteditable]")) return;
 
   const key = e.key.toLowerCase();
@@ -732,6 +909,15 @@ function boot() {
   buildThemeModal();
   wireModals();
   initCountdown();
+  wirePresenter();
+
+  // The viewer first: a QR code link that opens this page means "be the
+  // other screen", and that has to be settled before sharing resumes a host
+  // session from last time.
+  initViewer({
+    onCelebrate: (on) => (on ? startConfetti() : stopConfetti()),
+  });
+  initShare({ getFrame: shareFrame, showModal, hideModal });
 }
 
 boot();

@@ -266,6 +266,10 @@ body.modal-open { overflow: hidden; }
 
 /* ==== App ==== */
 
+/* The hidden attribute wins over any display a class sets, so a .btn or a
+   flex box can be hidden with it like anything else. */
+[hidden] { display: none !important; }
+
 /* Native controls (date picker, number spinners, scrollbars) follow the mode. */
 :root[data-mode="light"] { color-scheme: light; }
 :root[data-mode="dark"] { color-scheme: dark; }
@@ -311,17 +315,21 @@ h1, h2 { font-weight: normal; }
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* Takes the room the buttons leave, and wraps rather than pushing the last
+   button off a 320px screen. */
 .app-name {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 1.2rem;
   color: var(--brand-ink);
 }
+.app-name [data-icon] { flex: none; }
 .app-name svg { width: 22px; height: 22px; }
 
 /* ---- background image (opt in) ---- */
@@ -336,12 +344,14 @@ h1, h2 { font-weight: normal; }
   visibility: visible;
   transition: opacity 0.2s ease, visibility 0s linear 0s;
 }
-.bg-layer.hidden {
+.bg-layer.hidden,
+.viewer-bg.hidden {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s ease, visibility 0s linear 0.2s;
 }
-.bg-layer img {
+.bg-layer img,
+.viewer-bg img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -351,7 +361,8 @@ h1, h2 { font-weight: normal; }
   /* Hides the soft edge a blur leaves at the viewport border. */
   transform: scale(1.06);
 }
-.bg-layer::after {
+.bg-layer::after,
+.viewer-bg::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -663,6 +674,350 @@ input[type="range"] {
 }
 .heart svg { width: 14px; height: 14px; }
 
+/* ---- the big countdown (js/display.js) ----
+
+   Drawn by the presenter and by the other screen. Everything is sized from
+   the box it sits in, which is a size container, so it fills a phone held
+   sideways and a TV alike. */
+.display {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4cqh;
+  padding: 5cqh 4cqw;
+  text-align: center;
+}
+
+.display-title {
+  max-width: 100%;
+  font-size: clamp(1.1rem, min(6cqw, 10cqh), 5rem);
+  line-height: 1.15;
+  color: var(--brand-ink);
+  overflow-wrap: anywhere;
+}
+.display-title:empty { display: none; }
+
+.display-clock {
+  --unit-count: 4;
+  --digits: 2;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 2cqw;
+}
+.display-unit {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 60cqw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5cqh;
+  padding: 3cqh 1cqw;
+  border-radius: clamp(12px, 2cqw, 28px);
+  background: var(--surface-strong);
+  border: 1px solid var(--surface-border);
+}
+/* As wide as a unit's box allows for the digits it holds, and never so tall
+   that the title and status lose their room. */
+.display-value {
+  font-size: min(
+    calc(min(84cqw / var(--unit-count), 60cqw) / (var(--digits) * 0.62 + 0.55)),
+    34cqh
+  );
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.display-label {
+  font-size: clamp(0.7rem, min(2.2cqw, 3.2cqh), 1.6rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+}
+
+.display-status {
+  font-size: clamp(1rem, min(3.4cqw, 5cqh), 2.6rem);
+  color: var(--muted-strong);
+}
+.display-status:empty { display: none; }
+.display-status.done {
+  padding: 0.2em 0.9em;
+  border-radius: 999px;
+  background: var(--brand-fill);
+  color: var(--on-brand);
+  animation: pop-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ---- presenter ----
+
+   Transparent, over the page's own background and background image, with
+   the page itself hidden beneath it. Below the confetti, so time running
+   out still rains on it. */
+.present {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  outline: none;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease, visibility 0s linear 0s;
+}
+.present.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+}
+
+body.presenting { overflow: hidden; }
+/* Every descendant too: the settings panel sets its own visibility for its
+   open and close transition, which would otherwise show through. Hidden
+   rather than display: none, so the page keeps its scroll position. */
+body.presenting .app,
+body.presenting .app *,
+body.presenting .update-notice,
+body.presenting .update-notice * { visibility: hidden !important; }
+
+.present-stage {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  container-type: size;
+}
+
+.present-exit {
+  position: absolute;
+  z-index: 3;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.present-exit:hover,
+.present-exit:focus-visible { opacity: 1; }
+.present-exit svg { width: 20px; height: 20px; }
+
+/* Remote, while sharing in extend mode. The other screen has the countdown,
+   so this one shows it framed and smaller, with the controls beneath it. */
+.present-remote-status,
+.present-controls { display: none; }
+
+.present.remote {
+  gap: 14px;
+  padding: max(60px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+}
+.present.remote .present-remote-status {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--muted-strong);
+}
+.present.remote .present-stage {
+  width: min(100%, 720px);
+  max-height: 60vh;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+}
+.present.remote .present-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.present-controls .btn { min-width: 110px; }
+
+/* ---- the other screen ----
+
+   The guest's side of sharing. Painted like the presenter, in the sharing
+   device's colours and over its background, because once play is pressed
+   that is exactly what it is. Above the page and its modals, below the
+   toast. */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background-color: color-mix(in srgb, var(--brand) 10%, var(--bg));
+  color: var(--ink);
+}
+.viewer.hidden { display: none; }
+
+body.viewing { overflow: hidden; }
+/* The sharing device's "Time's up!" confetti, over the shared countdown. */
+body.viewing #confettiCanvas { z-index: 56; }
+
+.viewer-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease, visibility 0s linear 0s;
+}
+.viewer:not(.showing) .viewer-bg { display: none; }
+
+.viewer-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  container-type: size;
+}
+.viewer:not(.showing) .viewer-stage { display: none; }
+
+.viewer-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+.viewer.showing .viewer-panel { display: none; }
+.viewer-panel h2 {
+  font-size: clamp(1.5rem, 4vw, 2.6rem);
+  color: var(--brand-ink);
+}
+.viewer-panel p {
+  max-width: 34rem;
+  font-size: clamp(0.95rem, 2vw, 1.25rem);
+  color: var(--muted-strong);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.viewer-controls {
+  position: absolute;
+  z-index: 3;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+}
+.viewer-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+.viewer-btn:hover,
+.viewer-btn:focus-visible { opacity: 1; }
+.viewer-btn svg { width: 20px; height: 20px; }
+
+.viewer-badge {
+  position: absolute;
+  z-index: 3;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* ---- share sheet ---- */
+
+.icon-btn.live {
+  background: var(--brand-fill);
+  color: var(--on-brand);
+}
+
+.modal-note {
+  font-size: 0.85rem;
+  color: var(--muted-strong);
+}
+
+.share-idle,
+.share-live {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Centred, with its quiet zone, so a phone pointed at the middle of the
+   screen finds it without hunting. Dark on white in both modes and every
+   colour: a scanner needs the contrast, and some will not read a code whose
+   light and dark are the other way round. */
+.share-qr {
+  display: flex;
+  justify-content: center;
+}
+.share-qr .qr {
+  width: min(220px, 70vw);
+  height: auto;
+  border-radius: 10px;
+}
+.qr-light { fill: white; }
+.qr-dark { fill: black; }
+
+.share-code {
+  text-align: center;
+  font-size: 2.2rem;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  user-select: text;
+}
+
+.share-help,
+.share-status {
+  font-size: 0.85rem;
+  color: var(--muted-strong);
+  text-align: center;
+}
+.share-status { color: var(--ink); }
+
+.share-link {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  word-break: break-all;
+  user-select: text;
+}
+
+.join-row {
+  display: flex;
+  gap: 8px;
+}
+.join-row .input {
+  flex: 1 1 auto;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.join-row .input::placeholder {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* ---- toast ---- */
 .toast {
   position: fixed;
@@ -723,9 +1078,16 @@ input[type="range"] {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@media (max-width: 380px) {
+  .app-name { font-size: 1.05rem; }
+  .topbar { gap: 8px; }
+}
+
 @media (max-width: 480px) {
   .app { padding: 10px; }
   .fields { grid-template-columns: 1fr; }
-  .actions .btn { min-width: 0; flex: 1 1 0; }
+  .actions .btn,
+  .present-controls .btn { min-width: 0; flex: 1 1 0; }
+  .present.remote .present-controls { width: 100%; }
   .update-notice-inner { padding-left: 10px; padding-right: 10px; }
 }
